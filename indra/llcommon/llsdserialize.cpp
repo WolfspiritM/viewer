@@ -1323,8 +1323,44 @@ S32 LLSDFormatter::format(const LLSD& data, std::ostream& ostr) const
     return format(data, ostr, mOptions);
 }
 
+namespace
+{
+    // RAII guard: forces classic "C" locale for both the given stream
+    // (affects std::ostream::operator<< / num_put) and the global CRT
+    // locale (affects llformat()/vsnprintf-family calls), restoring both
+    // on destruction - including when unwinding due to an exception.
+    class LLSDClassicLocaleGuard
+    {
+    public:
+        explicit LLSDClassicLocaleGuard(std::ostream& ostr)
+            : mStream(ostr)
+            , mOldStreamLocale(ostr.getloc())
+        {
+            mStream.imbue(std::locale::classic());
+            const char* prev = setlocale(LC_ALL, nullptr);
+            mOldCRTLocale = prev ? prev : "C";
+            setlocale(LC_ALL, "C");
+        }
+
+        ~LLSDClassicLocaleGuard()
+        {
+            setlocale(LC_ALL, mOldCRTLocale.c_str());
+            mStream.imbue(mOldStreamLocale);
+        }
+
+        LLSDClassicLocaleGuard(const LLSDClassicLocaleGuard&) = delete;
+        LLSDClassicLocaleGuard& operator=(const LLSDClassicLocaleGuard&) = delete;
+
+    private:
+        std::ostream& mStream;
+        std::locale   mOldStreamLocale;
+        std::string   mOldCRTLocale;
+    };
+}
+
 S32 LLSDFormatter::format(const LLSD& data, std::ostream& ostr, EFormatterOptions options) const
 {
+    LLSDClassicLocaleGuard locale_guard(ostr);
     return format_impl(data, ostr, options, 0);
 }
 
